@@ -415,15 +415,15 @@ document.getElementById('searchBtn').addEventListener('click', async () => {
     const giftKey = Object.keys(gifts).find(k => normKey(k) === normKey(giftKeyRaw));
     const options = giftKey ? (gifts[giftKey] || []) : [];
 
-    // تأكد إن الطفل ده ماخدش هدية قبل كده في نفس الفصل
-    const already = await database.collection("gift_redemptions")
-      .where("name", "==", name)
-      .where("className", "==", className)
-      .limit(1).get();
+    // كل طفل يقدر يختار مرتين بالكتير (يعني يقدر يغيّر اختياره مرة واحدة بس)
+    const redemptionId = docId + "__" + name.replace(/\s+/g, "_");
+    const redemptionRef = database.collection("gift_redemptions").doc(redemptionId);
+    const already = await redemptionRef.get();
+    const prevData = already.exists ? already.data() : null;
+    const attemptsSoFar = prevData ? (prevData.attempts || 1) : 0;
 
-    if (!already.empty) {
-      const prev = already.docs[0].data();
-      showMsg(`إنت اخدت هديتك قبل كده: <b>${prev.gift}</b> 🎁<br>مينفعش تختار تاني.`, "success");
+    if (attemptsSoFar >= 2) {
+      showMsg(`إنت غيّرت اختيارك قبل كده وهديتك النهائية هي: <b>${prevData.gift}</b> 🎁<br>مينفعش تغيّر تاني.`, "success");
       btn.disabled = false;
       return;
     }
@@ -434,7 +434,9 @@ document.getElementById('searchBtn').addEventListener('click', async () => {
       return;
     }
 
-    let html = `<p style="font-size:15px;color:#555;margin-bottom:10px;">اختار هديتك:</p>`;
+    let html = attemptsSoFar === 1
+      ? `<p style="font-size:15px;color:#a33;margin-bottom:10px;">كنت اخترت <b>${prevData.gift}</b> قبل كده. تقدر تغيّر اختيارك مرة واحدة بس، اختار هديتك:</p>`
+      : `<p style="font-size:15px;color:#555;margin-bottom:10px;">اختار هديتك:</p>`;
     options.forEach((g, i) => {
       const imgSrc = resolveGiftImage(className, foundLevel, g);
       const imgTag = imgSrc ? `<img src="${imgSrc}" alt="${g}">` : "";
@@ -448,16 +450,19 @@ document.getElementById('searchBtn').addEventListener('click', async () => {
         b.classList.add('chosen');
         const gift = b.getAttribute('data-gift');
         try {
-          await database.collection("gift_redemptions").add({
+          await redemptionRef.set({
             name: name,
             className: className,
             level: foundLevel,
             gift: gift,
+            attempts: attemptsSoFar + 1,
             timestamp: firebase.firestore.FieldValue.serverTimestamp()
           });
           const note = document.createElement('div');
           note.className = "msg success";
-          note.textContent = `تم تسجيل هديتك: ${gift} 🎉`;
+          note.textContent = attemptsSoFar === 0
+            ? `تم تسجيل هديتك: ${gift} 🎉`
+            : `تم تغيير هديتك النهائية إلى: ${gift} 🎉`;
           resEl.appendChild(note);
         } catch (err) {
           const note = document.createElement('div');
